@@ -1,0 +1,92 @@
+version: '3.8'
+
+networks:
+    moodle-internal-pod:
+        internal: true
+    moodle-external-pod:
+        internal: false
+
+volumes:
+    mariadb-moodle:
+        external: true
+
+services:
+    moodle-mariadb:
+        image: mariadb:10.8
+        command:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+            - --max_allowed_packet=512M
+        container_name: moodle-mariadb
+        environment:
+            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+            MYSQL_DATABASE: moodle
+        ports:
+            - "3306:3306"
+        networks:
+            - moodle-internal-pod
+            - moodle-external-pod
+        volumes:
+            - mariadb-moodle:/var/lib/mysql
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+
+    moodle_phpmyadmin:
+        image: phpmyadmin/phpmyadmin
+        container_name: moodle_phpmyadmin
+        environment:
+            PMA_HOST: moodle-mariadb
+        depends_on:
+            - moodle-mariadb
+        ports:
+            - "8080:80"
+        networks:
+            - moodle-internal-pod
+            - moodle-external-pod
+
+    moodle-web-nginx:
+        image: nginx:1.18-alpine
+        container_name: moodle_nginx
+        volumes:
+            - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./certs:/etc/nginx/ssl
+            - ../moodle:/var/www/html:rw
+            - ./nginx/log/:/var/log/nginx/
+            - ./moodledata/:/var/www/moodledata
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+        ports:
+            - "80:80"
+            - "443:443"
+        networks:
+            - moodle-internal-pod
+            - moodle-external-pod
+        depends_on:
+            - moodle-mariadb
+            - moodle-mail
+
+    moodle-web-php:
+        build: .
+        container_name: moodle_web
+        volumes:
+            - ../moodle:/var/www/html:rw
+            - ./moodledata/:/var/www/moodledata
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+        ports:
+            - "6000:9003"
+        networks:
+            - moodle-internal-pod
+            - moodle-external-pod
+        depends_on:
+            - moodle-web-nginx
+
+    moodle-mail:
+        image: maildev/maildev
+        container_name: moodle_maildev
+        ports:
+            - "6081:1080"
+            - "25:1025"
+        networks:
+            - moodle-internal-pod
+            - moodle-external-pod
